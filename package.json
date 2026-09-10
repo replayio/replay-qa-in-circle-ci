@@ -1,5 +1,5 @@
 {
-  "name": "replayqa-cli-in-ci",
+  "name": "replay-qa-in-circle-ci",
   "version": "0.0.1",
   "type": "module",
   "private": true,

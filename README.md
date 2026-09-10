@@ -1,96 +1,107 @@
-# Reminders · Replay QA in CI
+# Reminders · Replay QA in CircleCI
 
-A small, local-first reminders app with an Apple Reminders-inspired desktop layout. It is built
-with Next.js App Router and the shadcn CLI's React Aria base (`aria-nova`), so the primary controls
-use React Aria's keyboard and screen-reader behavior.
+A local-first Next.js reminders app demonstrating Replay QA in CircleCI. Based on
+[replayio/replayqa-cli-in-ci](https://github.com/replayio/replayqa-cli-in-ci), with
+GitHub Actions replaced by [`.circleci/config.yml`](.circleci/config.yml).
 
-## Run it locally
+## Run locally
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Reminders and custom lists are saved in the
-browser's local storage. The demo includes Today, Scheduled, All Reminders, Flagged, and Completed
-smart lists, plus Personal, Groceries, Work, and Travel lists.
+Open http://localhost:3000. Reminders and custom lists are saved in browser local storage.
+The app includes Today, Scheduled, All Reminders, Flagged, and Completed smart lists.
+
+## Connect CircleCI
+
+1. Add `replayio/replay-qa-in-circle-ci` as a CircleCI project using the **GitHub OAuth**
+   integration and the existing `.circleci/config.yml`. This example uses OAuth integration
+   variables, including `CIRCLE_PULL_REQUEST`; the GitHub App integration is not a drop-in replacement.
+2. Keep **Build forked pull requests** and **Pass secrets to builds from forked pull requests**
+   disabled. Only trusted contributors should be able to run code with the project credentials.
+3. Add the environment variables below in **Project Settings → Environment Variables**.
+4. Open a same-repository PR and push a commit after marking it ready for review. Draft PRs,
+   closed PRs, forks, and superseded commit revisions skip QA. If the PR was created after the
+   branch build, or was just marked ready, trigger a new pipeline for that branch.
+5. Optionally enable **Auto-cancel redundant workflows** to stop outdated branch builds.
+   The Replay QA API also replaces the previous in-flight revision for the same PR.
+
+The `main` branch runs `npm run check`. Other branches run PR QA when CircleCI supplies a
+PR URL and GitHub confirms eligibility. The public GitHub API verifies PR state without an
+additional token; an API error fails the job rather than bypassing validation.
+
+CircleCI references: [built-in variables](https://circleci.com/docs/reference/variables/),
+[configuration](https://circleci.com/docs/reference/configuration-reference/).
 
 ## Replay QA setup
 
-The pull-request workflow starts the production Next server, installs the pinned Replay QA CLI with
-`npx`, connects the runner through the managed reverse proxy, and queues a PR-aware exploration-backed
-test run. The Replay QA API cancels the previous in-flight revision for that PR before creating the
-replacement, preserving the old run in history. The app and proxy stay alive while the workflow polls
-the new exploration to a terminal status, then the proxy's JSON log is uploaded as a workflow artifact.
-
-The target project must be created once as a reverse-proxy project because the CI runner's localhost
-is not reachable from Replay's test browsers. With a Replay QA API key, run this from the repo after
-building the app or use the equivalent project setup in the Replay QA dashboard:
+Create a dedicated reverse-proxy project so Replay's browsers can reach the CI runner:
 
 ```bash
-REPLAY_QA_API_KEY=lqa_... npx --yes replayqa@0.2.3 create-project \
-  --name "Reminders · CI" \
+REPLAY_QA_API_KEY=lqa_... npx --yes replayqa@0.2.4 create-project \
+  --name "Reminders · CircleCI" \
   --target-url http://127.0.0.1:3000 \
   --reverse-proxy \
   --instructions "Test creating, completing, searching, and switching reminder lists."
 ```
 
-Add these repository secrets in GitHub under **Settings → Secrets and variables → Actions**:
+Set these CircleCI project environment variables:
 
-- `REPLAY_QA_PROJECT_ID` — the `proj-...` id returned by the command above.
-- `REPLAY_QA_API_KEY` — a durable Replay QA API key that can access that project. The local
-  `~/.replay/profile/auth.json` file contains a short-lived OAuth `accessToken`; do not use that
-  value as a long-lived CI secret. Create a dedicated API key for Actions and rotate it when needed.
+- `REPLAY_QA_PROJECT_ID`: the dedicated reverse-proxy project's `proj-...` ID.
+- `REPLAY_QA_API_KEY`: a durable API key with access to that project. Do not use the
+  short-lived OAuth token from `~/.replay/profile/auth.json`.
 
-The PR workflow runs its QA job only after a same-repository pull request is marked **Ready for review**;
-draft PRs and forked pull requests are skipped because GitHub does not expose repository secrets to
-untrusted fork workflows. When a ready PR is updated, GitHub cancels the previous workflow and the CI
-script asks Replay QA to cancel only that workflow's matching revision before it exits; the replacement
-workflow then submits the new commit SHA, branch, repository, and PR number. Before starting the app,
-it validates both secret presence and access to the configured Replay project, so missing or stale
-credentials fail with a focused error.
+Use a separate project from the original GitHub Actions example to avoid competing tunnels.
+No project IDs or credentials are included in this repository.
 
-The checked-in `.replay/config.example.json` documents the local project shape without committing a
-project id. For a manual local proxy, copy it to `.replay/config.json` and run:
+The PR job validates credentials, runs TypeScript, ESLint, and a production build, and starts
+Next.js as a CircleCI background step. [`scripts/run-replayqa-ci.mjs`](scripts/run-replayqa-ci.mjs)
+waits for the proxy's JSON `heartbeat` with `ready: true`, submits repository/PR/commit/branch
+metadata from CircleCI, and polls the run to a terminal status while keeping the tunnel alive.
+The run identity combines the CircleCI workflow UUID and job number, including on job reruns.
+The Replay API's `workflow_run_id` field is retained because it is part of the CLI contract.
+
+QA can take up to one hour; the command has a 70-minute outer timeout. Your CircleCI plan must
+support jobs of that duration. SIGINT/SIGTERM asks Replay QA to cancel the matching revision;
+hard runner termination cannot guarantee cleanup. App, proxy, and QA logs are saved in the
+CircleCI job's **Artifacts** tab, including when QA fails.
+
+For a manual local proxy, copy `.replay/config.example.json` to `.replay/config.json` and run:
 
 ```bash
-REPLAY_QA_API_KEY=lqa_... npx --yes replayqa@0.2.3 run http://127.0.0.1:3000 \
-  --no-app \
-  --project "$REPLAY_QA_PROJECT_ID" \
-  --qa-url https://qa.replay.io
+REPLAY_QA_API_KEY=lqa_... npx --yes replayqa@0.2.4 run http://127.0.0.1:3000 \
+  --no-app --project "$REPLAY_QA_PROJECT_ID" --qa-url https://qa.replay.io
 ```
 
-The CI orchestration lives in [`scripts/run-replayqa-ci.mjs`](scripts/run-replayqa-ci.mjs). It waits
-for the proxy's JSON `heartbeat` event with `ready: true` before calling `replayqa ci`, then polls the
-workflow-owned CI run until its version-backed exploration and journeys are all terminal. The PR job
-allows up to one hour for the complete QA run and emits periodic status lines while the tunnel remains
-active, so long-running journey batches do not lose access to the local app after authoring finishes.
+## Production QA after deployment
 
-## Production deployment and QA
+Vercel's Git integration can deploy the app independently. CircleCI does not receive the
+original GitHub Actions `deployment_status` trigger. Instead, after a successful production
+deployment, trigger a pipeline on `main` with boolean parameter `run-production-qa: true`,
+using the CircleCI UI or a deployment webhook service calling the CircleCI API.
+Do not trigger it merely because a commit was pushed: that could test the previous deployment.
+See [triggering pipelines with parameters](https://circleci.com/docs/guides/orchestrate/pipeline-variables/).
 
-The `Deploy production · Replay QA` workflow runs after every push to `main` (including a merged
-pull request). It validates the app, builds and deploys the project with the Vercel CLI, waits for a
-stable public production URL, and then starts a Replay QA exploration against the production project.
-The production project must be configured in Replay QA with its target URL set to the same stable URL;
-the production job does not use the localhost reverse proxy.
+Set these additional CircleCI environment variables:
 
-This repo assumes Vercel for the Next.js deployment. Add these additional GitHub Actions secrets:
+- `REPLAY_QA_PRODUCTION_PROJECT_ID`: a public Replay QA project configured with the production URL.
+- `REPLAY_QA_PRODUCTION_URL`: the same public production URL.
 
-- `VERCEL_TOKEN` — a Vercel token that can deploy the project.
-- `VERCEL_ORG_ID` — the Vercel team or account id.
-- `VERCEL_PROJECT_ID` — the Vercel project id.
-- `REPLAY_QA_PRODUCTION_PROJECT_ID` — a normal public Replay QA project pointed at production.
-- `REPLAY_QA_PRODUCTION_URL` — the stable production URL, such as `https://reminders.example.com`.
+The API key must also access the production project. The job checks HTTP availability and
+requests an exploration, then prints the latest five test runs. As in the source repository,
+**production job success means the request was accepted, not that QA passed**. Review the
+result in Replay QA. The URL must be publicly accessible to Replay's browsers. The production
+script uses the project's configured target URL; the environment variable must match it.
 
-`REPLAY_QA_API_KEY` is reused by both workflows and must be able to access the local reverse-proxy
-project and the production project. The production orchestration lives in
-[`scripts/run-replayqa-production.mjs`](scripts/run-replayqa-production.mjs); it submits the test
-run and prints the latest five production runs.
+Connecting CircleCI, adding credentials, provisioning Replay projects, and wiring an automatic
+post-deployment trigger are external setup steps; creating this repository does not perform them.
 
 ## Checks
 
 ```bash
 npm run check
+node --test scripts/circleci-pr.test.mjs
+circleci config validate
 ```
-
-`check` runs TypeScript, ESLint, and a production Next build.

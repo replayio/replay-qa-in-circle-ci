@@ -4,11 +4,12 @@ import { setTimeout as delay } from "node:timers/promises"
 
 const projectId = required("REPLAY_QA_PROJECT_ID")
 required("REPLAY_QA_API_KEY")
-const githubRepository = required("REPLAYQA_GITHUB_REPOSITORY")
-const githubPrNumber = required("REPLAYQA_GITHUB_PR_NUMBER")
-const githubHeadSha = required("REPLAYQA_GITHUB_HEAD_SHA")
-const githubHeadRef = required("REPLAYQA_GITHUB_HEAD_REF")
-const githubWorkflowRunId = required("REPLAYQA_GITHUB_RUN_ID")
+const githubRepository = `${required("CIRCLE_PROJECT_USERNAME")}/${required("CIRCLE_PROJECT_REPONAME")}`
+const githubPrNumber = required("CIRCLE_PULL_REQUEST").match(/\/pull\/(\d+)$/)?.[1]
+if (!githubPrNumber) throw new Error("CIRCLE_PULL_REQUEST must be a GitHub pull request URL.")
+const githubHeadSha = required("CIRCLE_SHA1")
+const githubHeadRef = required("CIRCLE_BRANCH")
+const githubWorkflowRunId = `circleci-${required("CIRCLE_WORKFLOW_ID")}-${required("CIRCLE_BUILD_NUM")}`
 
 const cliVersion = process.env.REPLAYQA_CLI_VERSION ?? "0.2.4"
 const qaUrl = process.env.REPLAY_QA_URL ?? "https://qa.replay.io"
