@@ -32,6 +32,7 @@ jobs:
     steps:
       - checkout
       - install
+      - run: node --test scripts/circleci-pr.test.mjs
       - run: npm run check
 
   replayqa-pr:
@@ -57,6 +58,7 @@ jobs:
             : "${REPLAY_QA_PROJECT_ID:?Set REPLAY_QA_PROJECT_ID in CircleCI project environment variables}"
             : "${REPLAY_QA_API_KEY:?Set REPLAY_QA_API_KEY in CircleCI project environment variables}"
             npx --yes replayqa@${REPLAYQA_CLI_VERSION} project --ignore-config --project "$REPLAY_QA_PROJECT_ID" >/dev/null
+      - run: node --test scripts/circleci-pr.test.mjs
       - run: npm run check
       - run:
           name: Start the demo app
