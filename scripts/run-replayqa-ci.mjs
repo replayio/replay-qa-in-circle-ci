@@ -1,3 +1,4 @@
+import { assertProjectRunning, ensureProjectRunning } from "./replayqa-project.mjs"
 import { createWriteStream } from "node:fs"
 import { spawn } from "node:child_process"
 import { setTimeout as delay } from "node:timers/promises"
@@ -15,7 +16,7 @@ const cliVersion = process.env.REPLAYQA_CLI_VERSION ?? "0.2.4"
 const qaUrl = process.env.REPLAY_QA_URL ?? "https://qa.replay.io"
 const cliEnv = { ...process.env, REPLAY_QA_URL: qaUrl }
 const proxyPort = process.env.REPLAYQA_PROXY_PORT ?? "18888"
-const runTimeoutMs = Number(process.env.REPLAYQA_RUN_TIMEOUT_MS ?? 3_600_000)
+const runTimeoutMs = Number(process.env.REPLAYQA_RUN_TIMEOUT_MS ?? 2_400_000)
 const runMarker = process.env.REPLAYQA_RUN_MARKER?.trim()
 const basePrompt =
   process.env.REPLAYQA_PROMPT ??
@@ -81,6 +82,8 @@ try {
   if (terminationRequested) throw new Error("Replay QA CI run was terminated before it started.")
   console.log(`Replay QA reverse proxy is ready for ${projectId}.`)
 
+  await ensureProjectRunning(requestApi, projectId)
+
   const explorationResult = await runCli([
     "ci",
     "--project",
@@ -120,6 +123,7 @@ try {
     console.error("Last Replay QA proxy output:")
     console.error(proxyOutput.slice(-20).join("\n"))
   }
+  await cleanUpActiveCiRun()
   process.exitCode = 1
 } finally {
   await stopProcess(proxy)
@@ -157,6 +161,12 @@ async function waitForCiRun(prRunId) {
       return ciRun
     }
 
+    assertProjectRunning(await requestApi("GET", `/projects/${projectId}`))
+
+    if (proxy.exitCode !== null || proxy.signalCode !== null) {
+      throw new Error("Replay QA reverse proxy exited while QA was running.")
+    }
+
     if (Date.now() >= deadline) {
       throw new Error(
         `Timed out after ${runTimeoutMs}ms waiting for Replay QA CI run ${prRunId} to finish.`
@@ -165,6 +175,12 @@ async function waitForCiRun(prRunId) {
 
     await delay(15_000)
   }
+}
+
+async function requestApi(method, path, data) {
+  const args = ["api", method, path]
+  if (data) args.push("--data", JSON.stringify(data))
+  return parseJson((await runCli(args)).stdout, `${method} ${path}`)
 }
 
 function ciRunMetadata() {
@@ -254,6 +270,12 @@ function runCli(args) {
       env: cliEnv,
       stdio: ["ignore", "pipe", "pipe"],
     })
+    const commandTimeout = setTimeout(() => {
+      child.kill("SIGKILL")
+      reject(new Error(`replayqa ${args[0]} exceeded its two-minute command timeout.`))
+    }, 120_000)
+    child.once("error", () => clearTimeout(commandTimeout))
+    child.once("exit", () => clearTimeout(commandTimeout))
     const stdout = []
     const stderr = []
 
