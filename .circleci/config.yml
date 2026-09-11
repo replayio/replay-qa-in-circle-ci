@@ -32,6 +32,7 @@ jobs:
     steps:
       - checkout
       - install
+      - run: node --test scripts/replayqa-project.test.mjs
       - run: npm run check
 
   replayqa-pr:
@@ -39,7 +40,7 @@ jobs:
     environment:
       REPLAYQA_PROXY_TIMEOUT_MS: "300000"
       REPLAYQA_PROXY_PORT: "18888"
-      REPLAYQA_RUN_TIMEOUT_MS: "3600000"
+      REPLAYQA_RUN_TIMEOUT_MS: "2400000"
       REPLAYQA_PROXY_LOG: /tmp/replayqa-logs/replayqa-proxy.jsonl
     steps:
       - checkout
@@ -57,6 +58,7 @@ jobs:
             : "${REPLAY_QA_PROJECT_ID:?Set REPLAY_QA_PROJECT_ID in CircleCI project environment variables}"
             : "${REPLAY_QA_API_KEY:?Set REPLAY_QA_API_KEY in CircleCI project environment variables}"
             npx --yes replayqa@${REPLAYQA_CLI_VERSION} project --ignore-config --project "$REPLAY_QA_PROJECT_ID" >/dev/null
+      - run: node --test scripts/replayqa-project.test.mjs
       - run: npm run check
       - run:
           name: Start the demo app
@@ -75,10 +77,10 @@ jobs:
             exit 1
       - run:
           name: Run Replay QA through the reverse proxy
-          no_output_timeout: 75m
+          no_output_timeout: 5m
           command: |
             set -o pipefail
-            timeout --signal=TERM --kill-after=30s 70m npm run qa:ci 2>&1 | tee /tmp/replayqa-logs/replayqa-ci.log
+            timeout --signal=TERM --kill-after=30s 50m npm run qa:ci 2>&1 | tee /tmp/replayqa-logs/replayqa-ci.log
       - store_artifacts:
           path: /tmp/replayqa-logs
           destination: replayqa-pr

@@ -63,8 +63,13 @@ metadata from CircleCI, and polls the run to a terminal status while keeping the
 The run identity combines the CircleCI workflow UUID and job number, including on job reruns.
 The Replay API's `workflow_run_id` field is retained because it is part of the CLI contract.
 
-QA can take up to one hour; the command has a 70-minute outer timeout. Your CircleCI plan must
-support jobs of that duration. SIGINT/SIGTERM asks Replay QA to cancel the matching revision;
+CI resumes a project paused with `awaiting_start` after the tunnel is ready and verifies that
+it becomes active. Other pause reasons fail with an actionable error. While polling a run,
+CI checks project state and fails if it pauses, rather than waiting for a queued run indefinitely.
+
+QA polling is bounded to 40 minutes; the command has a 50-minute outer timeout so cleanup and
+log upload can happen before CircleCI’s one-hour job limit. Individual CLI calls time out after
+two minutes. Failed runs request cancellation before disconnecting the tunnel. SIGINT/SIGTERM asks Replay QA to cancel the matching revision;
 hard runner termination cannot guarantee cleanup. App, proxy, and QA logs are saved in the
 CircleCI job's **Artifacts** tab, including when QA fails.
 
