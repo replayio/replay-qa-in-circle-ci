@@ -75,6 +75,14 @@ REPLAY_QA_API_KEY=lqa_... npx --yes replayqa@0.2.4 run http://127.0.0.1:3000 \
   --no-app --project "$REPLAY_QA_PROJECT_ID" --qa-url https://qa.replay.io
 ```
 
+## Verify the first PR run
+
+After saving the CircleCI environment variables, open a ready-for-review PR from a branch
+in this repository and push a commit while the PR is open. In the `replayqa-pr` job, verify
+that credential validation succeeds, the demo app starts, and the reverse proxy reports
+ready before the Replay QA run is submitted. A successful build alone does not verify QA;
+check the terminal Replay QA result and the job artifacts as well.
+
 ## Production QA after deployment
 
 Vercel's Git integration can deploy the app independently. CircleCI does not receive the
